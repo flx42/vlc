@@ -129,22 +129,36 @@ static void DisplaySubpicture(vout_display_t *vd, subpicture_t *subpicture)
     ANativeWindow_Buffer buf = { 0 };
     ANativeWindow_lock(sys->window, &buf, NULL);
 
-    if (buf.width >= sys->fmt.i_width && buf.height >= sys->fmt.i_height)
-    {
-        /* Wrap the NativeWindow corresponding to the subtitles surface in a picture_t */
-        picture_t *picture = sys->subtitles_picture;
-        picture->p[0].p_pixels = (uint8_t*)buf.bits;
-        picture->p[0].i_lines = buf.height;
-        picture->p[0].i_pitch = picture->p[0].i_pixel_pitch * buf.stride;
-        /* Clear the subtitles surface. */
-        memset(picture->p[0].p_pixels, 0, picture->p[0].i_pitch * picture->p[0].i_lines);
-        if (subpicture)
-        {
-            /* Allocate a blending filter if needed. */
-            if (unlikely(!sys->p_spu_blend))
-                sys->p_spu_blend = filter_NewBlend(VLC_OBJECT(vd), &picture->format);
-            picture_BlendSubpicture(picture, sys->p_spu_blend, subpicture);
+    picture_t *picture = sys->subtitles_picture;
+    int align_pixels = (16 / picture->p[0].i_pixel_pitch) - 1;
+    int width = (sys->fmt.i_width + align_pixels) & ~align_pixels;
+    int height = sys->fmt.i_height;
+
+    if (buf.width != width || buf.height != height) {
+        ANativeWindow_unlockAndPost(sys->window);
+        ANativeWindow_setBuffersGeometry(sys->window, width, height, 0);
+
+        ANativeWindow_lock(sys->window, &buf, NULL);
+        if (buf.width != width || buf.height != height) {
+            /* Failed to resize the buffer, give up. */
+            ANativeWindow_unlockAndPost(sys->window);
+            jni_UnlockAndroidSurface();
+            return;
         }
+    }
+
+    /* Wrap the NativeWindow corresponding to the subtitles surface in a picture_t */
+    picture->p[0].p_pixels = (uint8_t*)buf.bits;
+    picture->p[0].i_lines = buf.height;
+    picture->p[0].i_pitch = picture->p[0].i_pixel_pitch * buf.stride;
+    /* Clear the subtitles surface. */
+    memset(picture->p[0].p_pixels, 0, picture->p[0].i_pitch * picture->p[0].i_lines);
+    if (subpicture)
+    {
+        /* Allocate a blending filter if needed. */
+        if (unlikely(!sys->p_spu_blend))
+            sys->p_spu_blend = filter_NewBlend(VLC_OBJECT(vd), &picture->format);
+        picture_BlendSubpicture(picture, sys->p_spu_blend, subpicture);
     }
 
     ANativeWindow_unlockAndPost(sys->window);

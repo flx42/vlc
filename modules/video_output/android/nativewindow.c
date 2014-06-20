@@ -91,6 +91,7 @@ static int Open(vout_window_t *wnd, const vout_window_cfg_t *cfg)
 
     // Set the Java surface size.
     jni_SetAndroidSurfaceSize(cfg->width, cfg->height, cfg->width, cfg->height, 1, 1);
+    ANativeWindow_setBuffersGeometry(p_sys->window, cfg->width, cfg->height, 0);
 
     return VLC_SUCCESS;
 

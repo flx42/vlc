@@ -200,6 +200,9 @@ static int Open(vlc_object_t *p_this)
     sys->i_sar_num = vd->source.i_sar_num;
     sys->i_sar_den = vd->source.i_sar_den;
 
+    jni_SetAndroidSurfaceSize(fmt.i_width, fmt.i_height, fmt.i_visible_width, fmt.i_visible_height,
+                              sys->i_sar_num, sys->i_sar_den);
+
     return VLC_SUCCESS;
 
 enomem:
@@ -297,16 +300,25 @@ static int  AndroidLockSurface(picture_t *picture)
     int align_pixels = (16 / picture->p[0].i_pixel_pitch) - 1;
     int aligned_width = (sw + align_pixels) & ~align_pixels;
 
-    if (info->width != aligned_width || info->height != sh || sys->b_changed_crop) {
-        // input size doesn't match the surface size -> request a resize
-        jni_SetAndroidSurfaceSize(aligned_width, sh, sys->fmt.i_visible_width, sys->fmt.i_visible_height, sys->i_sar_num, sys->i_sar_den);
-        // When using ANativeWindow, one should use ANativeWindow_setBuffersGeometry
-        // to set the size and format. In our case, these are set via the SurfaceHolder
-        // in Java, so we seem to manage without calling this ANativeWindow function.
+    if (sys->b_changed_crop) {
         ANativeWindow_unlockAndPost(sys->window);
         jni_UnlockAndroidSurface();
+        jni_SetAndroidSurfaceSize(sys->fmt.i_width, sys->fmt.i_height, sys->fmt.i_visible_width, sys->fmt.i_visible_height,
+                                  sys->i_sar_num, sys->i_sar_den);
         sys->b_changed_crop = false;
         return VLC_EGENERIC;
+    }
+    else if (info->width != aligned_width || info->height != sh) {
+        ANativeWindow_unlockAndPost(sys->window);
+        ANativeWindow_setBuffersGeometry(sys->window, aligned_width, sh, 0);
+
+        ANativeWindow_lock(sys->window, info, NULL);
+        if (info->width != aligned_width || info->height != sh) {
+            /* Failed to resize the buffer, give up. */
+            ANativeWindow_unlockAndPost(sys->window);
+            jni_UnlockAndroidSurface();
+            return VLC_EGENERIC;
+        }
     }
 
     picture->p[0].p_pixels = (uint8_t*)info->bits;
