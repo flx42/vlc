@@ -53,6 +53,7 @@ vlc_module_end()
 extern JavaVM *myVm;
 extern jobject jni_LockAndGetSubtitlesSurface();
 extern void  jni_UnlockAndroidSurface();
+extern void jni_SetSubtitlesSurfaceVisibility(bool);
 
 static const vlc_fourcc_t subpicture_chromas[] =
 {
@@ -243,6 +244,7 @@ static int Open(vlc_object_t *p_this)
 
     /* Fix initial state */
     vout_display_SendEventFullscreen(vd, false);
+    jni_SetSubtitlesSurfaceVisibility(true);
 
     return VLC_SUCCESS;
 
@@ -256,6 +258,8 @@ static void Close(vlc_object_t *p_this)
 {
     vout_display_t *vd = (vout_display_t *)p_this;
     vout_display_sys_t *sys = vd->sys;
+
+    jni_SetSubtitlesSurfaceVisibility(false);
 
     picture_pool_Delete(sys->pool);
     if (sys->window)
