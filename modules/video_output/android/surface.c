@@ -36,16 +36,6 @@
 
 #include "utils.h"
 
-#ifndef ANDROID_SYM_S_LOCK
-# define ANDROID_SYM_S_LOCK "_ZN7android7Surface4lockEPNS0_11SurfaceInfoEb"
-#endif
-#ifndef ANDROID_SYM_S_LOCK2
-# define ANDROID_SYM_S_LOCK2 "_ZN7android7Surface4lockEPNS0_11SurfaceInfoEPNS_6RegionE"
-#endif
-#ifndef ANDROID_SYM_S_UNLOCK
-# define ANDROID_SYM_S_UNLOCK "_ZN7android7Surface13unlockAndPostEv"
-#endif
-
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
@@ -79,13 +69,6 @@ extern jobject jni_LockAndGetAndroidJavaSurface();
 extern void  jni_UnlockAndroidSurface();
 extern void  jni_SetAndroidSurfaceSize(int width, int height, int visible_width, int visible_height, int sar_num, int sar_den);
 
-// _ZN7android7Surface4lockEPNS0_11SurfaceInfoEb
-typedef void (*Surface_lock)(void *, void *, int);
-// _ZN7android7Surface4lockEPNS0_11SurfaceInfoEPNS_6RegionE
-typedef void (*Surface_lock2)(void *, void *, void *);
-// _ZN7android7Surface13unlockAndPostEv
-typedef void (*Surface_unlockAndPost)(void *);
-
 /*****************************************************************************
  * Local prototypes
  *****************************************************************************/
@@ -95,23 +78,9 @@ static void             Display(vout_display_t *, picture_t *, subpicture_t *);
 static int              Control(vout_display_t *, int, va_list);
 
 /* */
-typedef struct _SurfaceInfo {
-    uint32_t    w;
-    uint32_t    h;
-    uint32_t    s;
-    uint32_t    usage;
-    uint32_t    format;
-    uint32_t*   bits;
-    uint32_t    reserved[2];
-} SurfaceInfo;
-
-/* */
 struct vout_display_sys_t {
     picture_pool_t *pool;
     void *p_library;
-    Surface_lock s_lock;
-    Surface_lock2 s_lock2;
-    Surface_unlockAndPost s_unlockAndPost;
     native_window_api_t native_window;
 
     jobject jsurf;
@@ -127,7 +96,7 @@ struct vout_display_sys_t {
 
 struct picture_sys_t {
     void *surf;
-    SurfaceInfo info;
+    ANativeWindow_Buffer info;
     vout_display_sys_t *sys;
 };
 
@@ -135,40 +104,6 @@ static int  AndroidLockSurface(picture_t *);
 static void AndroidUnlockSurface(picture_t *);
 
 static vlc_mutex_t single_instance = VLC_STATIC_MUTEX;
-
-static inline void *LoadSurface(const char *psz_lib, vout_display_sys_t *sys)
-{
-    void *p_library = dlopen(psz_lib, RTLD_NOW);
-    if (!p_library)
-        return NULL;
-
-    sys->s_lock = (Surface_lock)(dlsym(p_library, ANDROID_SYM_S_LOCK));
-    sys->s_lock2 = (Surface_lock2)(dlsym(p_library, ANDROID_SYM_S_LOCK2));
-    sys->s_unlockAndPost =
-        (Surface_unlockAndPost)(dlsym(p_library, ANDROID_SYM_S_UNLOCK));
-
-    if ((sys->s_lock || sys->s_lock2) && sys->s_unlockAndPost)
-        return p_library;
-
-    dlclose(p_library);
-    return NULL;
-}
-
-static void *InitLibrary(vout_display_sys_t *sys)
-{
-    static const char *libs[] = {
-        "libsurfaceflinger_client.so",
-        "libgui.so",
-        "libui.so"
-    };
-
-    for (size_t i = 0; i < sizeof(libs) / sizeof(*libs); i++) {
-        void *lib = LoadSurface(libs[i], sys);
-        if (lib)
-            return lib;
-    }
-    return NULL;
-}
 
 static int Open(vlc_object_t *p_this)
 {
@@ -189,12 +124,9 @@ static int Open(vlc_object_t *p_this)
 
     /* */
     sys->p_library = LoadNativeWindowAPI(&sys->native_window);
-    sys->s_unlockAndPost = (Surface_unlockAndPost)sys->native_window.unlockAndPost;
-    if (!sys->p_library)
-        sys->p_library = InitLibrary(sys);
     if (!sys->p_library) {
         free(sys);
-        msg_Err(vd, "Could not initialize libandroid.so/libui.so/libgui.so/libsurfaceflinger_client.so!");
+        msg_Err(vd, "Could not initialize NativeWindow API!");
         vlc_mutex_unlock(&single_instance);
         return VLC_EGENERIC;
     }
@@ -312,10 +244,10 @@ static picture_pool_t *Pool(vout_display_t *vd, unsigned count)
 }
 
 #define ALIGN_16_PIXELS( x ) ( ( ( x ) + 15 ) / 16 * 16 )
-static void SetupPictureYV12( SurfaceInfo* p_surfaceInfo, picture_t *p_picture )
+static void SetupPictureYV12( ANativeWindow_Buffer* p_surfaceInfo, picture_t *p_picture )
 {
     /* according to document of android.graphics.ImageFormat.YV12 */
-    int i_stride = ALIGN_16_PIXELS( p_surfaceInfo->s );
+    int i_stride = ALIGN_16_PIXELS( p_surfaceInfo->stride );
     int i_c_stride = ALIGN_16_PIXELS( i_stride / 2 );
 
     p_picture->p->i_pitch = i_stride;
@@ -350,74 +282,52 @@ static int  AndroidLockSurface(picture_t *picture)
 {
     picture_sys_t *picsys = picture->p_sys;
     vout_display_sys_t *sys = picsys->sys;
-    SurfaceInfo *info;
-    uint32_t sw, sh;
-    void *surf;
+    ANativeWindow_Buffer *info;
+    int sw, sh;
 
     sw = sys->fmt.i_width;
     sh = sys->fmt.i_height;
 
-    if (sys->native_window.winFromSurface) {
-        jobject jsurf = jni_LockAndGetAndroidJavaSurface();
-        if (unlikely(!jsurf)) {
-            jni_UnlockAndroidSurface();
-            return VLC_EGENERIC;
-        }
-        if (sys->window && jsurf != sys->jsurf) {
-            sys->native_window.winRelease(sys->window);
-            sys->window = NULL;
-        }
-        sys->jsurf = jsurf;
-        if (!sys->window) {
-            JNIEnv *p_env;
-            (*myVm)->AttachCurrentThread(myVm, &p_env, NULL);
-            sys->window = sys->native_window.winFromSurface(p_env, jsurf);
-            (*myVm)->DetachCurrentThread(myVm);
-        }
-        // Using sys->window instead of the native surface object
-        // as parameter to the unlock function
-        picsys->surf = surf = sys->window;
-    } else {
-        picsys->surf = surf = jni_LockAndGetAndroidSurface();
-        if (unlikely(!surf)) {
-            jni_UnlockAndroidSurface();
-            return VLC_EGENERIC;
-        }
+    jobject jsurf = jni_LockAndGetAndroidJavaSurface();
+    if (unlikely(!jsurf)) {
+        jni_UnlockAndroidSurface();
+        return VLC_EGENERIC;
     }
+    if (sys->window && jsurf != sys->jsurf) {
+        sys->native_window.winRelease(sys->window);
+        sys->window = NULL;
+    }
+    sys->jsurf = jsurf;
+    if (!sys->window) {
+        JNIEnv *p_env;
+        (*myVm)->AttachCurrentThread(myVm, &p_env, NULL);
+        sys->window = sys->native_window.winFromSurface(p_env, jsurf);
+        (*myVm)->DetachCurrentThread(myVm);
+    }
+    picsys->surf = sys->window;
     info = &picsys->info;
 
-    if (sys->native_window.winLock) {
-        ANativeWindow_Buffer buf = { 0 };
-        sys->native_window.winLock(sys->window, &buf, NULL);
-        info->w      = buf.width;
-        info->h      = buf.height;
-        info->bits   = buf.bits;
-        info->s      = buf.stride;
-        info->format = buf.format;
-    } else if (sys->s_lock)
-        sys->s_lock(surf, info, 1);
-    else
-        sys->s_lock2(surf, info, NULL);
+    sys->native_window.winLock(sys->window, info, NULL);
 
     // For RGB (32 or 16) we need to align on 8 or 4 pixels, 16 pixels for YUV
     int align_pixels = (16 / picture->p[0].i_pixel_pitch) - 1;
-    uint32_t aligned_width = (sw + align_pixels) & ~align_pixels;
+    int aligned_width = (sw + align_pixels) & ~align_pixels;
 
-    if (info->w != aligned_width || info->h != sh || sys->b_changed_crop) {
+    if (info->width != aligned_width || info->height != sh || sys->b_changed_crop) {
         // input size doesn't match the surface size -> request a resize
         jni_SetAndroidSurfaceSize(aligned_width, sh, sys->fmt.i_visible_width, sys->fmt.i_visible_height, sys->i_sar_num, sys->i_sar_den);
         // When using ANativeWindow, one should use ANativeWindow_setBuffersGeometry
         // to set the size and format. In our case, these are set via the SurfaceHolder
         // in Java, so we seem to manage without calling this ANativeWindow function.
-        sys->s_unlockAndPost(surf);
+        sys->native_window.unlockAndPost(sys->window);
         jni_UnlockAndroidSurface();
         sys->b_changed_crop = false;
         return VLC_EGENERIC;
     }
 
     picture->p[0].p_pixels = (uint8_t*)info->bits;
-    picture->p[0].i_lines = info->h;
-    picture->p[0].i_pitch = picture->p[0].i_pixel_pitch * info->s;
+    picture->p[0].i_lines = info->height;
+    picture->p[0].i_pitch = picture->p[0].i_pixel_pitch * info->stride;
 
     if (info->format == 0x32315659 /*ANDROID_IMAGE_FORMAT_YV12*/)
         SetupPictureYV12(info, picture);
@@ -431,7 +341,7 @@ static void AndroidUnlockSurface(picture_t *picture)
     vout_display_sys_t *sys = picsys->sys;
 
     if (likely(picsys->surf))
-        sys->s_unlockAndPost(picsys->surf);
+        sys->native_window.unlockAndPost(picsys->surf);
     jni_UnlockAndroidSurface();
 }
 
