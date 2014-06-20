@@ -50,7 +50,8 @@ extern JavaVM *myVm;
 /* JNI functions to get/set an Android Surface object. */
 extern jobject jni_LockAndGetAndroidJavaSurface();
 extern void jni_UnlockAndroidSurface();
-extern void jni_SetAndroidSurfaceSizeEnv(JNIEnv *p_env, int width, int height, int visible_width, int visible_height, int sar_num, int sar_den);
+extern void jni_SetAndroidSurfaceSizeEnv(JNIEnv *p_env, int width, int height, int visible_width, int visible_height,
+                                         int sar_num, int sar_den, int orientation);
 extern void jni_EventHardwareAccelerationError();
 extern bool jni_IsVideoPlayerActivityCreated();
 
@@ -828,7 +829,8 @@ static void GetOutput(decoder_t *p_dec, JNIEnv *env, picture_t **pp_pic, jlong t
                     sar_num = p_dec->fmt_in.video.i_sar_num;
                     sar_den = p_dec->fmt_in.video.i_sar_den;
                 }
-                jni_SetAndroidSurfaceSizeEnv(env, width, height, width, height, sar_num, sar_den);
+                int orientation = p_dec->fmt_in.video.orientation;
+                jni_SetAndroidSurfaceSizeEnv(env, width, height, width, height, sar_num, sar_den, orientation);
             } else
                 GetVlcChromaFormat(p_sys->pixel_format, &p_dec->fmt_out.i_codec, &name);
 

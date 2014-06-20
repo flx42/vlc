@@ -64,7 +64,8 @@ extern JavaVM *myVm;
 extern void *jni_LockAndGetAndroidSurface();
 extern jobject jni_LockAndGetAndroidJavaSurface();
 extern void  jni_UnlockAndroidSurface();
-extern void  jni_SetAndroidSurfaceSize(int width, int height, int visible_width, int visible_height, int sar_num, int sar_den);
+extern void  jni_SetAndroidSurfaceSize(int width, int height, int visible_width, int visible_height,
+                                       int sar_num, int sar_den, int orientation);
 
 /*****************************************************************************
  * Local prototypes
@@ -201,7 +202,7 @@ static int Open(vlc_object_t *p_this)
     sys->i_sar_den = vd->source.i_sar_den;
 
     jni_SetAndroidSurfaceSize(fmt.i_width, fmt.i_height, fmt.i_visible_width, fmt.i_visible_height,
-                              sys->i_sar_num, sys->i_sar_den);
+                              sys->i_sar_num, sys->i_sar_den, fmt.orientation);
 
     return VLC_SUCCESS;
 
@@ -304,7 +305,7 @@ static int  AndroidLockSurface(picture_t *picture)
         ANativeWindow_unlockAndPost(sys->window);
         jni_UnlockAndroidSurface();
         jni_SetAndroidSurfaceSize(sys->fmt.i_width, sys->fmt.i_height, sys->fmt.i_visible_width, sys->fmt.i_visible_height,
-                                  sys->i_sar_num, sys->i_sar_den);
+                                  sys->i_sar_num, sys->i_sar_den, sys->fmt.orientation);
         sys->b_changed_crop = false;
         return VLC_EGENERIC;
     }

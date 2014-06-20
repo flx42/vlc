@@ -37,7 +37,8 @@
 extern JavaVM *myVm;
 extern jobject jni_LockAndGetAndroidJavaSurface();
 extern void jni_UnlockAndroidSurface();
-extern void  jni_SetAndroidSurfaceSize(int width, int height, int visible_width, int visible_height, int sar_num, int sar_den);
+extern void jni_SetAndroidSurfaceSize(int width, int height, int visible_width, int visible_height,
+                                      int sar_num, int sar_den, int orientation);
 
 static int Open(vout_window_t *, const vout_window_cfg_t *);
 static void Close(vout_window_t *);
@@ -90,7 +91,7 @@ static int Open(vout_window_t *wnd, const vout_window_cfg_t *cfg)
     wnd->sys = p_sys;
 
     // Set the Java surface size.
-    jni_SetAndroidSurfaceSize(cfg->width, cfg->height, cfg->width, cfg->height, 1, 1);
+    jni_SetAndroidSurfaceSize(cfg->width, cfg->height, cfg->width, cfg->height, 1, 1, 0);
     ANativeWindow_setBuffersGeometry(p_sys->window, cfg->width, cfg->height, 0);
 
     return VLC_SUCCESS;
@@ -123,7 +124,7 @@ static int Control(vout_window_t *wnd, int cmd, va_list ap)
         {
             unsigned width = va_arg(ap, unsigned);
             unsigned height = va_arg(ap, unsigned);
-            jni_SetAndroidSurfaceSize(width, height, width, height, 1, 1);
+            jni_SetAndroidSurfaceSize(width, height, width, height, 1, 1, 0);
             break;
         }
         case VOUT_WINDOW_SET_STATE:
