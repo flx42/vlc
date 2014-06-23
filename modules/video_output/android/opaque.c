@@ -72,9 +72,6 @@ struct vout_display_sys_t
 {
     picture_pool_t *pool;
 
-    void *p_library;
-    native_window_api_t native_window;
-
     jobject jsurf;
     ANativeWindow *window;
 
@@ -117,7 +114,7 @@ static void DisplaySubpicture(vout_display_t *vd, subpicture_t *subpicture)
     jobject jsurf = jni_LockAndGetSubtitlesSurface();
     if (sys->window && jsurf != sys->jsurf)
     {
-        sys->native_window.winRelease(sys->window);
+        ANativeWindow_release(sys->window);
         sys->window = NULL;
     }
     sys->jsurf = jsurf;
@@ -125,12 +122,12 @@ static void DisplaySubpicture(vout_display_t *vd, subpicture_t *subpicture)
     {
         JNIEnv *p_env;
         (*myVm)->AttachCurrentThread(myVm, &p_env, NULL);
-        sys->window = sys->native_window.winFromSurface(p_env, jsurf);
+        sys->window = ANativeWindow_fromSurface(p_env, jsurf);
         (*myVm)->DetachCurrentThread(myVm);
     }
 
     ANativeWindow_Buffer buf = { 0 };
-    sys->native_window.winLock(sys->window, &buf, NULL);
+    ANativeWindow_lock(sys->window, &buf, NULL);
 
     if (buf.width >= sys->fmt.i_width && buf.height >= sys->fmt.i_height)
     {
@@ -150,7 +147,7 @@ static void DisplaySubpicture(vout_display_t *vd, subpicture_t *subpicture)
         }
     }
 
-    sys->native_window.unlockAndPost(sys->window);
+    ANativeWindow_unlockAndPost(sys->window);
     jni_UnlockAndroidSurface();
 }
 
@@ -176,13 +173,6 @@ static int Open(vlc_object_t *p_this)
     if (!sys)
         return VLC_ENOMEM;
 
-    sys->p_library = LoadNativeWindowAPI(&sys->native_window);
-    if (!sys->p_library)
-    {
-        free(sys);
-        msg_Err(vd, "Could not initialize NativeWindow API.");
-        return VLC_EGENERIC;
-    }
     sys->fmt = fmt;
     video_format_t subpicture_format = sys->fmt;
     subpicture_format.i_chroma = VLC_CODEC_RGBA;
@@ -255,8 +245,7 @@ static void Close(vlc_object_t *p_this)
 
     picture_pool_Delete(sys->pool);
     if (sys->window)
-        sys->native_window.winRelease(sys->window);
-    dlclose(sys->p_library);
+        ANativeWindow_release(sys->window);
     picture_Release(sys->subtitles_picture);
     if (sys->p_spu_blend)
         filter_DeleteBlend(sys->p_spu_blend);

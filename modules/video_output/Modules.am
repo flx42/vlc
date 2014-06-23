@@ -213,7 +213,6 @@ libegl_android_plugin_la_LIBADD = $(EGL_LIBS)
 
 libandroid_native_window_plugin_la_SOURCES = android/nativewindow.c android/utils.c
 libandroid_native_window_plugin_la_CFLAGS = $(AM_CFLAGS)
-libandroid_native_window_plugin_la_LIBADD = -ldl
 
 if HAVE_ANDROID
 vout_LTLIBRARIES += libandroid_native_window_plugin.la

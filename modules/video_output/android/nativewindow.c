@@ -32,9 +32,6 @@
 #include <vlc_plugin.h>
 #include <vlc_vout_window.h>
 
-#include <dlfcn.h>
-#include <jni.h>
-
 #include "utils.h"
 
 extern JavaVM *myVm;
@@ -61,9 +58,6 @@ vlc_module_end()
 
 struct vout_window_sys_t
 {
-    void *p_library;
-    native_window_api_t native_window;
-
     ANativeWindow *window;
 };
 
@@ -76,13 +70,6 @@ static int Open(vout_window_t *wnd, const vout_window_cfg_t *cfg)
     if (p_sys == NULL)
         return VLC_ENOMEM;
 
-    p_sys->p_library = LoadNativeWindowAPI(&p_sys->native_window);
-    if (p_sys->p_library == NULL)
-    {
-        free(p_sys);
-        return VLC_EGENERIC;
-    }
-
     // Create the native window by first getting the Java surface.
     jobject javaSurface = jni_LockAndGetAndroidJavaSurface();
     if (javaSurface == NULL)
@@ -90,7 +77,7 @@ static int Open(vout_window_t *wnd, const vout_window_cfg_t *cfg)
 
     JNIEnv *p_env;
     (*myVm)->AttachCurrentThread(myVm, &p_env, NULL);
-    p_sys->window = p_sys->native_window.winFromSurface(p_env, javaSurface); // ANativeWindow_fromSurface call.
+    p_sys->window = ANativeWindow_fromSurface(p_env, javaSurface); // ANativeWindow_fromSurface call.
     (*myVm)->DetachCurrentThread(myVm);
 
     jni_UnlockAndroidSurface();
@@ -108,7 +95,6 @@ static int Open(vout_window_t *wnd, const vout_window_cfg_t *cfg)
     return VLC_SUCCESS;
 
 error:
-    dlclose(p_sys->p_library);
     free(p_sys);
     return VLC_EGENERIC;
 }
@@ -120,8 +106,7 @@ error:
 static void Close(vout_window_t *wnd)
 {
     vout_window_sys_t *p_sys = wnd->sys;
-    p_sys->native_window.winRelease(p_sys->window); // Release the native window.
-    dlclose(p_sys->p_library); // Close the library.
+    ANativeWindow_release(p_sys->window); // Release the native window.
     free (p_sys);
 }
 

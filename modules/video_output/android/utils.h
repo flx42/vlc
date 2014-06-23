@@ -31,20 +31,4 @@
 
 #include <vlc_vout_display.h>
 
-typedef ANativeWindow* (*ptr_ANativeWindow_fromSurface)(JNIEnv*, jobject);
-typedef void (*ptr_ANativeWindow_release)(ANativeWindow*);
-typedef int32_t (*ptr_ANativeWindow_lock)(ANativeWindow*, ANativeWindow_Buffer*, ARect*);
-typedef void (*ptr_ANativeWindow_unlockAndPost)(ANativeWindow*);
-
-typedef struct
-{
-    ptr_ANativeWindow_fromSurface winFromSurface;
-    ptr_ANativeWindow_release winRelease;
-    ptr_ANativeWindow_lock winLock;
-    ptr_ANativeWindow_unlockAndPost unlockAndPost;
-} native_window_api_t;
-
-/* Fill the structure passed as parameter and return a library handle
-   that should be destroyed with dlclose. */
-void *LoadNativeWindowAPI(native_window_api_t *native);
 void Manage(vout_display_t *);

@@ -31,9 +31,6 @@
 #include <vlc_vout_display.h>
 #include <vlc_picture_pool.h>
 
-#include <dlfcn.h>
-#include <jni.h>
-
 #include "utils.h"
 
 /*****************************************************************************
@@ -80,8 +77,6 @@ static int              Control(vout_display_t *, int, va_list);
 /* */
 struct vout_display_sys_t {
     picture_pool_t *pool;
-    void *p_library;
-    native_window_api_t native_window;
 
     jobject jsurf;
     ANativeWindow *window;
@@ -120,15 +115,6 @@ static int Open(vlc_object_t *p_this)
     if (!sys) {
         vlc_mutex_unlock(&single_instance);
         return VLC_ENOMEM;
-    }
-
-    /* */
-    sys->p_library = LoadNativeWindowAPI(&sys->native_window);
-    if (!sys->p_library) {
-        free(sys);
-        msg_Err(vd, "Could not initialize NativeWindow API!");
-        vlc_mutex_unlock(&single_instance);
-        return VLC_EGENERIC;
     }
 
     /* Setup chroma */
@@ -217,7 +203,6 @@ static int Open(vlc_object_t *p_this)
     return VLC_SUCCESS;
 
 enomem:
-    dlclose(sys->p_library);
     free(sys);
     vlc_mutex_unlock(&single_instance);
     return VLC_ENOMEM;
@@ -230,8 +215,7 @@ static void Close(vlc_object_t *p_this)
 
     picture_pool_Delete(sys->pool);
     if (sys->window)
-        sys->native_window.winRelease(sys->window);
-    dlclose(sys->p_library);
+        ANativeWindow_release(sys->window);
     free(sys);
     vlc_mutex_unlock(&single_instance);
 }
@@ -294,20 +278,20 @@ static int  AndroidLockSurface(picture_t *picture)
         return VLC_EGENERIC;
     }
     if (sys->window && jsurf != sys->jsurf) {
-        sys->native_window.winRelease(sys->window);
+        ANativeWindow_release(sys->window);
         sys->window = NULL;
     }
     sys->jsurf = jsurf;
     if (!sys->window) {
         JNIEnv *p_env;
         (*myVm)->AttachCurrentThread(myVm, &p_env, NULL);
-        sys->window = sys->native_window.winFromSurface(p_env, jsurf);
+        sys->window = ANativeWindow_fromSurface(p_env, jsurf);
         (*myVm)->DetachCurrentThread(myVm);
     }
     picsys->surf = sys->window;
     info = &picsys->info;
 
-    sys->native_window.winLock(sys->window, info, NULL);
+    ANativeWindow_lock(sys->window, info, NULL);
 
     // For RGB (32 or 16) we need to align on 8 or 4 pixels, 16 pixels for YUV
     int align_pixels = (16 / picture->p[0].i_pixel_pitch) - 1;
@@ -319,7 +303,7 @@ static int  AndroidLockSurface(picture_t *picture)
         // When using ANativeWindow, one should use ANativeWindow_setBuffersGeometry
         // to set the size and format. In our case, these are set via the SurfaceHolder
         // in Java, so we seem to manage without calling this ANativeWindow function.
-        sys->native_window.unlockAndPost(sys->window);
+        ANativeWindow_unlockAndPost(sys->window);
         jni_UnlockAndroidSurface();
         sys->b_changed_crop = false;
         return VLC_EGENERIC;
@@ -341,7 +325,7 @@ static void AndroidUnlockSurface(picture_t *picture)
     vout_display_sys_t *sys = picsys->sys;
 
     if (likely(picsys->surf))
-        sys->native_window.unlockAndPost(picsys->surf);
+        ANativeWindow_unlockAndPost(picsys->surf);
     jni_UnlockAndroidSurface();
 }
 
